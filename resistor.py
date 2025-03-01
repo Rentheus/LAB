@@ -50,12 +50,12 @@ def read_data(filename, name = "", plot_raw = False, plot_errorbar = False, save
     #print(Data[i*11:(i+1)*11,1])
     
 
-        Data_err[i,0] = np.std(Data[i*11:(i+1)*11,0], ddof=1)/11**0.5
-        Data_err[i,1] = np.std(Data[i*11:(i+1)*11,1], ddof=1)/11*0.5
+        Data_err[i,0] = np.std(Data[i*11:(i+1)*11,0], ddof=1)
+        Data_err[i,1] = np.std(Data[i*11:(i+1)*11,1], ddof=1)
     #print(Data_err<adc_err_u)
     Data_err = Data_err*[Data_err>adc_err_u]+ adc_err_u*np.array(Data_err<adc_err_u)
     #Data_mean[0,i] = np.mean(Data[0,i*11:(i+1)*11])
-    
+    Data_err = Data_err/(11)**2
     Data_err = Data_err[0] 
     if plot_errorbar == True:
         plt.errorbar(Data_mean[:,0], Data_mean[:,1], Data_err[:,1], Data_err[:,0], fmt=".")
@@ -180,13 +180,11 @@ linfit_plot(r3d, r3e, "$10000 \Omega$", "R10000_fit.pdf")
 #%%zdiode
 
 def linfit_z(res_data, res_std):
-    'linear fitting function for Q with Zdiode'
+    'linear fitting function for Q = Ue / Ua with Zdiode'
     
-    r = unp.uarray(res_data,res_std)
-    #i = r[:,1]/R_REF_4700
 
     
-    chi2_r = lambda m, b: chi2(lin ,y = res_data[:,0], x = unp.nominal_values(r[:]), yerr=res_std[:,0], xerr = unp.std_devs(r[:]), a = m , c=b)
+    chi2_r = lambda m, b: chi2(lin ,y = res_data[:,0], x = res_data[:,1], yerr=res_std[:,0], xerr = res_std[:,1], a = m , c=b)
 
     m0 = iminuit.Minuit(chi2_r, m = 1, b = 0)
 
@@ -197,7 +195,7 @@ def linfit_z(res_data, res_std):
 def z_diode_plot(zdata, zerr):
     fig, ax = fig, ax = plt.subplots(2, 1, figsize=(10,7), layout = "tight")
 
-    ax[0].errorbar(zdata[:,0], zdata[:,1], zerr[:,1], zerr[:,0], fmt =".")
+    ax[0].errorbar(zdata[:,0] + zdata[:,1], zdata[:,1], zerr[:,1], zerr[:,0], fmt =".")
     
     arbeitspunkt = -3
     zdata_sliced = zdata[np.abs(zdata[:,0]-arbeitspunkt)<0.05]
