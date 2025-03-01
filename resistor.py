@@ -9,11 +9,12 @@ import numpy as np
 import uncertainties as u
 import numba
 import iminuit 
+from iminuit import cost, Minuit
 import matplotlib.pyplot as plt
 import uncertainties.unumpy as unp
 import uncertainties.umath as um
 
-adc_bins = 20/(2**12)
+adc_bins = 20/(2**16)
 adc_err_u = adc_bins/3**0.5
 
 R_REF_4700 = u.ufloat(4670, 10/3**0.5)
@@ -47,7 +48,7 @@ def read_data(filename, name = "", plot_raw = False, plot_errorbar = False, save
     for i in range(Data.shape[0]//11):
         Data_mean[i,0] = np.mean(Data[i*11:(i+1)*11,0])
         Data_mean[i,1] = np.mean(Data[i*11:(i+1)*11,1])
-    #print(Data[i*11:(i+1)*11,1])
+    
     
 
         Data_err[i,0] = np.std(Data[i*11:(i+1)*11,0], ddof=1)
@@ -179,35 +180,84 @@ linfit_plot(r3d, r3e, "$10000 \Omega$", "R10000_fit.pdf")
 
 #%%zdiode
 
-def linfit_z(res_data, res_std):
+def linfit_z(UE, UA, UEerr, UAerr):
     'linear fitting function for Q = Ue / Ua with Zdiode'
     
 
     
-    chi2_r = lambda m, b: chi2(lin ,y = res_data[:,0], x = res_data[:,1], yerr=res_std[:,0], xerr = res_std[:,1], a = m , c=b)
+    chi2_r = lambda m, b: chi2(lin ,y = UE, x = UA, yerr=UAerr, xerr = UEerr, a = m , c=b)
 
     m0 = iminuit.Minuit(chi2_r, m = 1, b = 0)
 
     m0.migrad()
     m0.hesse()
-    return m0.values, m0.errors, m0.fval, len(res_data) - 2, m0.fval/(len(res_data) - 2)
+    return m0.values, m0.errors, m0.fval, len(UA) - 2, m0.fval/(len(UA) - 2)
 
-def z_diode_plot(zdata, zerr):
-    fig, ax = fig, ax = plt.subplots(2, 1, figsize=(10,7), layout = "tight")
+def z_diode_plot(zdata, zerr, name ="", filename = "test.pdf"):
+    fig, ax = fig, ax = plt.subplots(3, 1, figsize=(10,7), layout = "tight",gridspec_kw={'height_ratios': [5, 5, 2]})
+    
+    UE = zdata[:,0] + zdata[:,1]
+    UEerr = np.sqrt(zerr[:,0]**2 + zerr[:,1]**2)
 
-    ax[0].errorbar(zdata[:,0] + zdata[:,1], zdata[:,1], zerr[:,1], zerr[:,0], fmt =".")
+    ax[0].errorbar(UE, zdata[:,0], zerr[:,0], UEerr, fmt =".", label = "Messdaten")
     
-    arbeitspunkt = -3
-    zdata_sliced = zdata[np.abs(zdata[:,0]-arbeitspunkt)<0.05]
-    zerr_sliced = zerr[np.abs(zdata[:,0]-arbeitspunkt)<0.05]
+    arbeitspunkt = -3.25
+    
+    ax[0].axhline(arbeitspunkt, color = "black", linestyle = "--", label = "Arbeitspunkt, $U_A$ = $-3.25V$")
+    ax[0].set_xlabel("$U_E [V]$")
+    ax[0].set_ylabel("$U_A [V]$")
+    ax[0].legend(fontsize = 13)
+    ax[0].title.set_text("Spannungsstabilisierung Z-Diode über R = " + name)
+
     
     
     
-    ax[1].errorbar(zdata_sliced[:,0], zdata_sliced[:,1], zerr_sliced[:,1], zerr_sliced[:,0], fmt =".")
+    
+    UA_sliced = zdata[:,0][np.abs(zdata[:,0]-arbeitspunkt)<(-1/min(UE)*0.08)]
+    UAerr_sliced = zerr[:,0][np.abs(zdata[:,0]-arbeitspunkt)<(-1/min(UE)*0.08)]
+    UE_sliced = UE[np.abs(zdata[:,0]-arbeitspunkt)<(-1/min(UE)*0.08)]
+    UEerr_sliced = UEerr[np.abs(zdata[:,0]-arbeitspunkt)<(-1/min(UE)*0.08)]
+    
+    
+    val, err, chisq, dof, chisqdof = linfit_z(UE_sliced, UA_sliced, UEerr_sliced, UAerr_sliced)
+    
+    
+    fity = 1/val["m"]*(UE_sliced - val["b"])
+    ax[1].errorbar(UE_sliced, UA_sliced, UAerr_sliced, UEerr_sliced, fmt =".", label = "Messungen")
+    ax[1].plot(UE_sliced, fity, label = "Linearer Fit")
+    ax[1].axhline(arbeitspunkt, color = "black", linestyle = "--", label = "Arbeitspunkt")
+    ax[1].set_xlabel("$U_E [V]$")
+    ax[1].set_ylabel("$U_A [V]$")
+    ax[1].legend(fontsize = 13)
+    
+    
+    
+    
+    sigmaRes = np.sqrt(1/val["m"]*UEerr_sliced**2 + UAerr_sliced**2)
+    
+    ax[2].axhline(y=0., color='black', linestyle='--', zorder = 4)
+    
+    ax[2].errorbar(UE_sliced, fity-UA_sliced, sigmaRes, fmt = ".",   label = "Residuen" )
+    #ax[1].fill_between(unp.nominal_values(i), fity-fityminus, fity-fityplus, alpha=0, linewidth = 0, label = "err_fit", color = "r")
+    #ax[1].axhline(y=0., color='black', linestyle='--')
+    ax[2].set_ylabel('$U_A- 1/G*U_E + b$ [$V$] ')
+    ax[2].set_xlabel('$U_E$ [$V$] ')
+    ymax = max([abs(x) for x in ax[2].get_ylim()])
+    ax[2].set_ylim(-ymax, ymax)
+    ax[2].legend(fontsize = 13)
+    
+    S = val["m"]* np.mean(UA_sliced)/np.mean(UE_sliced)
+    fig.text(0.5,0, f'G = {val["m"]:.1f} , S = {S:.1f}, chi2/dof = {chisq:.1f} / {dof} = {chisqdof:.3f} ', horizontalalignment = "center")
+    #fig.subplots_adjust(hspace=0.0)
+    
+    
+    #print(f'G = ({val["m"]})')
+    #print(S)
+    #print(chisq)
+    #print(dof)
+    plt.savefig(filename)
     plt.show()
     
-    
-
     return True
 
 z_diode_100,uz_d_err_100 = read_data("z_diode_100.txt", plot_raw= True, plot_errorbar=True)
@@ -217,9 +267,34 @@ z_diode_1000[:,0] = -z_diode_1000[:,0]
 #plt.plot(z_diode_1000[:,0],z_diode_1000[:,1])
 #plt.plot(z_diode_100[:,0],z_diode_100[:,1])
 
-z_diode_plot(z_diode_100, uz_d_err_100)
-z_diode_plot(z_diode_1000, uz_d_err_1000)
+z_diode_plot(z_diode_100, uz_d_err_100, "100$\Omega$", "Z_100R.pdf")
+z_diode_plot(z_diode_1000, uz_d_err_1000, "1000$\Omega$", "Z_1000R.pdf")
 
+#%%kondensator
+
+def exp(x, a,b,c):
+    return a*np.exp(-x/b) + c
+
+
+Data = np.genfromtxt("c_entladekurve2.txt")
+
+
+
+
+# zwischen 5000 und 455050
+t = Data[5000:455050,0] - Data[5000,0]
+U_C = Data[5000:455050,2]
+print(t[5])
+
+lstsq = cost.LeastSquares(t, U_C, adc_err_u, exp)
+m1 = Minuit(lstsq, a=15, b=0.4, c=0)
+print(m1.migrad())
+m1.hesse()
+
+
+#plt.scatter(Data[5000:455050,0],Data[5000:455050,1], )
+#plt.scatter(Data[5000:455050,0],Data[5000:455050,2], )
+plt.show()
 
 #%%gleichrichter
 gleichrichter = np.genfromtxt("Gleichrichter_1000R_Neu.txt")
