@@ -13,7 +13,7 @@ import matplotlib.pyplot as plt
 import uncertainties.unumpy as unp
 import uncertainties.umath as um
 
-adc_bins = 10/(2**12)
+adc_bins = 20/(2**12)
 adc_err_u = adc_bins/3**0.5
 
 R_REF_4700 = u.ufloat(4670, 10/3**0.5)
@@ -67,7 +67,7 @@ def read_data(filename, name = "", plot_raw = False, plot_errorbar = False, save
     #plt.show()
     
     return Data_mean, Data_err
-
+#%% linfit
 
 def lin(x, m,b):
     "lineare fitfunktion"
@@ -83,33 +83,83 @@ def chi2(fit_func, x, y, xerr, yerr, a, c):
 
 
 
-#%% linfit
-def linfit_res(res_data, res_means):
+
+def linfit_res(res_data, res_std):
     'linear fitting function for resistors'
     
-    r = unp.uarray(res_data,res_means)
+    r = unp.uarray(res_data,res_std)
     i = r[:,1]/R_REF_4700
 
     
-    chi2_r = lambda m, b: chi2(lin ,y = res_data[:,0], x = unp.nominal_values(i[:]), yerr=res_means[:,0], xerr = unp.std_devs(i[:]), a = m , c=b)
+    chi2_r = lambda m, b: chi2(lin ,y = res_data[:,0], x = unp.nominal_values(i[:]), yerr=res_std[:,0], xerr = unp.std_devs(i[:]), a = m , c=b)
 
     m0 = iminuit.Minuit(chi2_r, m = 1, b = 0)
 
     m0.migrad()
     m0.hesse()
-    return m0.values, m0.errors, m0.fval, m0.fval/2
+    return m0.values, m0.errors, m0.fval, len(res_data) - 2, m0.fval/(len(res_data) - 2)
+    
+def linfit_plot(res_data, res_std, name = "", filename = "test.pdf"):
+    val, err, chisq, dof, chindof = linfit_res(res_data, res_std)
+    res = u.ufloat(val["m"],err["m"])
+    b = u.ufloat(val["b"],err["b"])
+    
+    
+    
+    fig, ax = fig, ax = plt.subplots(2, 1, figsize=(10,7), layout = "tight",sharex=True, gridspec_kw={'height_ratios': [5, 2]})
+    
+    r = unp.uarray(res_data,res_std)
+    i = r[:,1]/R_REF_4700
+    #print(i)
+    
+    fity = lin(unp.nominal_values(i), val["m"],val["b"])
+    fityplus = lin(unp.nominal_values(i), val["m"]+err["m"],val["b"]+err["b"])
+    fityminus = lin(unp.nominal_values(i), val["m"]-err["m"],val["b"]-err["b"])
+    
+    ax[0].plot(unp.nominal_values(i), fity, label = "Fit", color = "r", zorder = 4)
+    ax[0].errorbar(unp.nominal_values(i),res_data[:,0], res_std[:,0], unp.std_devs(i), fmt =".", elinewidth=0.4, label = "Messwerte", zorder =2)
+    ax[0].fill_between(unp.nominal_values(i), fityminus, fityplus, alpha=.5, linewidth=0, label = "err_fit", color = "r", zorder = 3)
+    #ax[0].plot(unp.nominal_values(i), fity, label = "Fit")
+    
+    ax[0].title.set_text("Lineare Regression & Residuenplot für R = " + name)
+    #ax[0].set_xlabel('$I$ [$A$] ')
+    ax[0].set_ylabel('$U_R$ [$I$] ')
+    ax[0].legend(fontsize = 13)
+    #ax[0].axhline(y=0., color='black', linestyle='--')
+    
+    sigmaRes = np.sqrt((val["m"]*unp.std_devs(i))**2 + res_std[:,0]**2)
+    
+    
+    ax[1].axhline(y=0., color='black', linestyle='--', zorder = 4)
+    ax[1].fill_between(unp.nominal_values(i), fity-fityminus, fity-fityplus, linewidth = 0, alpha = .5, label = "err_fit", color = "r", zorder = 3)
+    ax[1].errorbar(unp.nominal_values(i), res_data[:,0]-fity, sigmaRes, zorder = 2, fmt =".", elinewidth=0.4, label = "Residuen" )
+    #ax[1].fill_between(unp.nominal_values(i), fity-fityminus, fity-fityplus, alpha=0, linewidth = 0, label = "err_fit", color = "r")
+    #ax[1].axhline(y=0., color='black', linestyle='--')
+    ax[1].set_ylabel('$U_R- R_fit*I$ [$I$] ')
+    ax[1].set_xlabel('$I$ [$A$] ')
+    ymax = max([abs(x) for x in ax[1].get_ylim()])
+    ax[1].set_ylim(-ymax, ymax)
+    ax[1].legend(fontsize = 13)
+    fig.text(0.5,0, f'R = ({res})$\Omega$ , b = ({b})V, chi2/dof = {chisq:.1f} / {dof} = {chindof:.3f} ', horizontalalignment = "center")
+    fig.subplots_adjust(hspace=0.0)
+    
+    
+    plt.savefig(filename)
+    plt.show()
+    return True
     
 
+    
 #%% linfit für R
 
 r1d, r1e = read_data("r_470.txt", plot_raw= True, plot_errorbar=True)
-print(linfit_res(r1d, r1e))
+linfit_plot(r1d, r1e, "$470 \Omega$", "R470_fit.pdf")
 
 r2d, r2e = read_data("r_1000.txt", plot_raw= True, plot_errorbar=True)
-print(linfit_res(r2d, r2e))
+linfit_plot(r2d, r2e, "$1000 \Omega$", "R1000_fit.pdf")
 
 r3d, r3e = read_data("r_10000.txt", plot_raw= True, plot_errorbar=True)
-print(linfit_res(r3d, r3e))
+linfit_plot(r3d, r3e, "$10000 \Omega$", "R10000_fit.pdf")
 
 #%%
 
@@ -127,9 +177,53 @@ print(linfit_res(r3d, r3e))
 
 #plt.show()
 
-z_diode,uz_d_err = read_data("z_diode_100.txt", plot_raw= True, plot_errorbar=True)
-z_diode,uz_d_err = read_data("z_diode_1000.txt", plot_raw= True, plot_errorbar=True)
+#%%zdiode
 
+def linfit_z(res_data, res_std):
+    'linear fitting function for Q with Zdiode'
+    
+    r = unp.uarray(res_data,res_std)
+    #i = r[:,1]/R_REF_4700
+
+    
+    chi2_r = lambda m, b: chi2(lin ,y = res_data[:,0], x = unp.nominal_values(r[:]), yerr=res_std[:,0], xerr = unp.std_devs(r[:]), a = m , c=b)
+
+    m0 = iminuit.Minuit(chi2_r, m = 1, b = 0)
+
+    m0.migrad()
+    m0.hesse()
+    return m0.values, m0.errors, m0.fval, len(res_data) - 2, m0.fval/(len(res_data) - 2)
+
+def z_diode_plot(zdata, zerr):
+    fig, ax = fig, ax = plt.subplots(2, 1, figsize=(10,7), layout = "tight")
+
+    ax[0].errorbar(zdata[:,0], zdata[:,1], zerr[:,1], zerr[:,0], fmt =".")
+    
+    arbeitspunkt = -3
+    zdata_sliced = zdata[np.abs(zdata[:,0]-arbeitspunkt)<0.05]
+    zerr_sliced = zerr[np.abs(zdata[:,0]-arbeitspunkt)<0.05]
+    
+    
+    
+    ax[1].errorbar(zdata_sliced[:,0], zdata_sliced[:,1], zerr_sliced[:,1], zerr_sliced[:,0], fmt =".")
+    plt.show()
+    
+    
+
+    return True
+
+z_diode_100,uz_d_err_100 = read_data("z_diode_100.txt", plot_raw= True, plot_errorbar=True)
+z_diode_100[:,0] = -z_diode_100[:,0]
+z_diode_1000,uz_d_err_1000 = read_data("z_diode_1000.txt", plot_raw= True, plot_errorbar=True)
+z_diode_1000[:,0] = -z_diode_1000[:,0]
+#plt.plot(z_diode_1000[:,0],z_diode_1000[:,1])
+#plt.plot(z_diode_100[:,0],z_diode_100[:,1])
+
+z_diode_plot(z_diode_100, uz_d_err_100)
+z_diode_plot(z_diode_1000, uz_d_err_1000)
+
+
+#%%gleichrichter
 gleichrichter = np.genfromtxt("Gleichrichter_1000R_Neu.txt")
 plt.scatter(gleichrichter[:,0], gleichrichter[:,1], marker = ".")
 plt.scatter(gleichrichter[:,0], gleichrichter[:,2], marker = ".")
