@@ -273,33 +273,74 @@ z_diode_plot(z_diode_1000, uz_d_err_1000, "1000$\Omega$", "Z_1000R.pdf")
 #%%kondensator
 
 def exp(x, a,b,c):
-    return a*np.exp(-x/b) + c
+    return a*np.exp(-x/b)+ c
+
+def exp_diel_abs(x, a,b , a2,b2, a3,b3, c):
+    return a*np.exp(-x/b)+ a2*np.exp(-x/b2)+ a3*np.exp(-x/b3)+ c
+#def gaussian(x, mu, sig):
+#    return (
+#        1.0 / (np.sqrt(2.0 * np.pi) * sig) * np.exp(-np.power((x - mu) / sig, 2.0) / 2)
+#    )
 
 
-Data = np.genfromtxt("c_entladekurve2.txt")
-
+#def expandnoise(x, a,b,c, d,e):
+#    return exp(x,a,b,c) + gaussian(x, d,e)
+#Data = np.genfromtxt("c_entladekurve.txt")
+Data = np.genfromtxt("C_ladekurve.txt")
 
 
 
 # zwischen 5000 und 455050
-t = Data[5000:455050,0] - Data[5000,0]
-U_C = Data[5000:455050,2]
+t = Data[10000:450000,0] - Data[10000,0]
+U_C = Data[10000:450000,1]
+U_R = Data[10000:450000,2]
+
 print(t[5])
 
-lstsq = cost.LeastSquares(t, U_C, adc_err_u, exp)
-m1 = Minuit(lstsq, a=15, b=0.4, c=0)
+lstsq = cost.LeastSquares(t, U_C, adc_err_u, exp_diel_abs)
+#lstsq_R = cost.LeastSquares(t, U_R, adc_err_u, exp)
+
+m1 = Minuit(lstsq, a=10, b=900, c=0, a2=-1, b2 = 10000, a3=0.1, b3=100005, )
+#m2 = Minuit(lstsq_R, a=-10, b=1, c=10)
+
 print(m1.migrad())
-m1.hesse()
+print(m1.hesse())
+#print(m2.migrad())
+#print(m2.hesse())
+#%%
+
+fig, ax = fig, ax = plt.subplots(2, 1, figsize=(10,7), layout = "tight",gridspec_kw={'height_ratios': [5, 2]})
+
+fitU = exp_diel_abs(t, m1.values["a"], m1.values["b"],m1.values["a2"], m1.values["b2"],m1.values["a3"], m1.values["b3"], m1.values["c"] )
+#fitU = exp(t, U_C[0], 1000, 0)
+#fitU_R = exp(t, m2.values["a"], m2.values["b"], m2.values["c"] )
 
 
-#plt.scatter(Data[5000:455050,0],Data[5000:455050,1], )
+ax[0].title.set_text("Entladekurve_kondensator__")
+
+ax[0].scatter(t,U_C, label = "Messwerte")
+ax[0].scatter(t,fitU, label = "Fit" )
 #plt.scatter(Data[5000:455050,0],Data[5000:455050,2], )
-plt.show()
+ax[0].legend()
+ax[1].scatter(t,U_C - fitU, label = "Residuen, U_C")
+#ax[1].scatter(t,U_R - fitU_R, label = "Residuen, U_R")
 
-#%%gleichrichter
+#ax[1].plot(t, exp(t, abs( U_C[0] - fitU[0])-abs( U_C[-1] - fitU[-1]),  m1.values["b"], abs( U_C[-1] - fitU[-1])))
+ax[1].legend()
+#plt.legend()
+#plt.savefig("c_fit.png")
+plt.show()
+print(m1.fval)
+print(len(t)- 3)
+print(m1.fval/(len(t)-3))
+ #%%gleichrichter
 gleichrichter = np.genfromtxt("Gleichrichter_1000R_Neu.txt")
-plt.scatter(gleichrichter[:,0], gleichrichter[:,1], marker = ".")
-plt.scatter(gleichrichter[:,0], gleichrichter[:,2], marker = ".")
+plt.scatter(gleichrichter[:1200,0], gleichrichter[:1200,1], marker = ".")
+
+offset = (max(gleichrichter[:1200,1] + gleichrichter[:1200,2]) + min(gleichrichter[:1200,1] + gleichrichter[:1200,2]))/2
+#plt.scatter(gleichrichter[:1200,0], abs(gleichrichter[:1200,2] - offset), marker = ".")
+#plt.scatter(gleichrichter[:1200,0], abs(gleichrichter[:1200,1] + gleichrichter[:1200,2]-offset), marker = ".")
+
 plt.show()
 
 #%%transistorkennlinien
@@ -324,10 +365,30 @@ plt.show()
 # plt.scatter(IB[:100,0],IB[:100,1])
 # plt.show()
 
-read_data()
+#read_data()
 
 # plt.scatter(u100mv[:,0],u100mv[:,1])
 # plt.scatter(u600mv[:,0],u600mv[:,1])
 # plt.scatter(u700mv[:,0],u700mv[:,1])
 # plt.scatter(u800mv[:,0],u800mv[:,1])
 # plt.plot()
+#%%schmitttrigger
+schmitt_hysterese = np.genfromtxt("schmitt_trigger_hysterese.txt")
+print(max(schmitt_hysterese[:,2]))
+trigger_active = schmitt_hysterese[:,0][schmitt_hysterese[:,2] > 6]
+
+
+plt.scatter(schmitt_hysterese[:,0], schmitt_hysterese[:,1], marker = ".")
+plt.scatter(schmitt_hysterese[:,0], schmitt_hysterese[:,2], marker = ".")
+plt.fill_between(trigger_active, max(schmitt_hysterese[:,2]), alpha = 0.5, color = "orange")
+
+#plt.plot(schmitt_hysterese[:,0], schmitt_hysterese[:,2], color = "r")
+
+plt.axhline(2.95)
+plt.axhline(1.65)
+
+
+
+plt.show()
+
+
