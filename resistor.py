@@ -14,7 +14,7 @@ import matplotlib.pyplot as plt
 import uncertainties.unumpy as unp
 import uncertainties.umath as um
 
-adc_bins = 20/(2**16)
+adc_bins = 20/(2**12)
 adc_err_u = adc_bins/3**0.5
 
 R_REF_4700 = u.ufloat(4670, 10/3**0.5)
@@ -56,7 +56,7 @@ def read_data(filename, name = "", plot_raw = False, plot_errorbar = False, save
     #print(Data_err<adc_err_u)
     Data_err = Data_err*[Data_err>adc_err_u]+ adc_err_u*np.array(Data_err<adc_err_u)
     #Data_mean[0,i] = np.mean(Data[0,i*11:(i+1)*11])
-    Data_err = Data_err/(11)**2
+    Data_err = Data_err/(11)**0.5
     Data_err = Data_err[0] 
     if plot_errorbar == True:
         plt.errorbar(Data_mean[:,0], Data_mean[:,1], Data_err[:,1], Data_err[:,0], fmt=".")
@@ -161,6 +161,50 @@ linfit_plot(r2d, r2e, "$1000 \Omega$", "R1000_fit.pdf")
 
 r3d, r3e = read_data("r_10000.txt", plot_raw= True, plot_errorbar=True)
 linfit_plot(r3d, r3e, "$10000 \Omega$", "R10000_fit.pdf")
+#%%
+
+def linfitr(res_data, res_std):
+    'linear fitting function for resistors'
+    
+    r = unp.uarray(res_data,res_std)
+    i = r[:,1]
+    
+    chi2_r = lambda m, b: chi2(lin ,y = res_data[:,0], x = unp.nominal_values(i[:]), yerr=res_std[:,0], xerr = unp.std_devs(i[:]), a = m , c=b)
+
+    m0 = iminuit.Minuit(chi2_r, m = 1, b = 0)
+
+    m0.migrad()
+    m0.hesse()
+    return m0.values, m0.errors, m0.fval, len(res_data) - 2, m0.fval/(len(res_data) - 2)
+
+
+plt.errorbar(r1d[:5,0],r1d[:5,1],r1e[:5,1],r1e[:5,0], fmt = ".", label = "$R = 470\Omega$")
+plt.errorbar(r2d[:5,0],r2d[:5,1],r2e[:5,1],r2e[:5,0], fmt = ".", label = "$R = 1000\Omega$")
+plt.errorbar(r3d[:5,0],r3d[:5,1],r3e[:5,1],r3e[:5,0], fmt = ".", label = "$R = 10000\Omega$")
+
+
+x = np.arange(-0.005,max(r3d[:5,0])+ 0.005, 0.001 )
+print(x)
+val, err, chisq, dof, chindof = linfitr(r1d, r1e)
+lin1 = lin(x, val["m"], val["b"])
+val, err, chisq, dof, chindof = linfitr(r2d, r2e)
+lin2 = lin(x, val["m"], val["b"])
+#print(lin2)
+val, err, chisq, dof, chindof = linfitr(r3d, r3e)
+lin3 = lin(x, val["m"], val["b"])
+
+#plt.plot(x, lin1, label = "$Fit, 470\Omega$", color = "b")
+plt.plot(x,lin2, label = "$Fit, 1000\Omega$", color = "y")
+#plt.plot(x, lin3, label = "$Fit, 10000\Omega$", color = "g")
+
+plt.title("Spannungsmessung nahe Nullpunkt")
+plt.errorbar(0,0,adc_err_u, adc_err_u,  label = "Nullpunkt, Digitalisierungsfehler", marker = ".", color = "black")
+plt.ylabel("$U_R [V]$")
+plt.xlabel("$U_{Referenzwiderstand} [V]$")
+
+plt.legend()
+plt.savefig("R_sys_null.pdf")
+plt.show()
 
 #%%
 
@@ -334,15 +378,66 @@ print(m1.fval)
 print(len(t)- 3)
 print(m1.fval/(len(t)-3))
  #%%gleichrichter
-gleichrichter = np.genfromtxt("Gleichrichter_1000R_Neu.txt")
-plt.scatter(gleichrichter[:1200,0], gleichrichter[:1200,1], marker = ".")
-
-offset = (max(gleichrichter[:1200,1] + gleichrichter[:1200,2]) + min(gleichrichter[:1200,1] + gleichrichter[:1200,2]))/2
-#plt.scatter(gleichrichter[:1200,0], abs(gleichrichter[:1200,2] - offset), marker = ".")
-#plt.scatter(gleichrichter[:1200,0], abs(gleichrichter[:1200,1] + gleichrichter[:1200,2]-offset), marker = ".")
-
+wechselspannung = np.genfromtxt("Wechselspannung_kein_R_L.txt")
+plt.errorbar(wechselspannung[:7000,0], wechselspannung[:7000,1], adc_err_u, fmt = ".", label= "Messwerte, $V_{SS} = 4V, f = 50Hz$")
+plt.title("Wechselspannung ohne Last für Gleichrichter")
+plt.axhline(-2, color = "black", linestyle = "--")
+plt.axhline(2, color = "black", linestyle = "--")
+plt.xlabel("$t [ms]$")
+plt.ylabel("$U_{In} [V]$")
+plt.legend(loc = "upper right")
+plt.savefig("Wechselspannung_Gleichrichter.pdf")
 plt.show()
 
+
+gleichrichter = np.genfromtxt("Gleichrichter_100R.txt")
+plt.title("Gleichrichter, $R_L = 100\Omega$")
+plt.errorbar(gleichrichter[:6000,0], gleichrichter[:6000,2], adc_err_u, fmt = ".", label = "$U_1$")
+
+
+plt.errorbar(gleichrichter[:6000,0], gleichrichter[:6000,1], adc_err_u, fmt = ".", label = "$U_2$")
+
+
+#ueff_berechnet = np.sqrt((gleichrichter[-1,0]-gleichrichter[0,0]) * )
+ueff_gemessen = np.sqrt(np.sum(gleichrichter[:, 2]**2 )/len(gleichrichter[:, 2]))
+
+ueff_theoretisch = max(abs(gleichrichter[:, 2])) / np.sqrt(2)
+
+plt.axhline(ueff_gemessen, color = "black", linestyle = "--", label = "$U_{Eff}$" + f" = {ueff_gemessen:.2f}V, gemessen")
+plt.axhline(ueff_theoretisch, color = "grey", linestyle = "--", label = "$U_{Eff}$" + f" = {ueff_theoretisch:.2f}V, theoretisch")
+
+#plt.scatter(gleichrichter[:4000,0], gleichrichter[:4000,1] + gleichrichter[:4000,2], marker = ".", color = "red", label  ="U3")
+plt.xlabel("$t [ms]$")
+plt.ylabel("$U [V]$")
+plt.legend(loc = "lower right", fontsize = 10)
+plt.savefig("gleichrichter100R.pdf")
+plt.show()
+
+######
+
+gleichrichter = np.genfromtxt("Gleichrichter_1000R_Neu.txt")
+plt.errorbar(gleichrichter[:6000,0], gleichrichter[:6000,2], adc_err_u, fmt = ".", label = "$U_1$")
+plt.title("Gleichrichter, $R_L = 1000\Omega$")
+
+#offset = (max(gleichrichter[:4000,1] + gleichrichter[:4000,2]) + min(gleichrichter[:1200,1] + gleichrichter[:1200,2]))/2
+plt.errorbar(gleichrichter[:6000,0], gleichrichter[:6000,1], adc_err_u, fmt = ".", label = "$U_2$")
+#plt.scatter(gleichrichter[:4000,0], gleichrichter[:4000,1] + gleichrichter[:4000,2], marker = ".", color = "red", label  ="U3")
+
+ueff_gemessen = np.sqrt(np.sum(gleichrichter[:, 2]**2 )/len(gleichrichter[:, 2]))
+
+ueff_theoretisch = max(abs(gleichrichter[:, 2])) / np.sqrt(2)
+
+plt.axhline(ueff_gemessen, color = "black", linestyle = "--", label = "$U_{Eff}$" + f" = {ueff_gemessen:.2f}V, gemessen")
+plt.axhline(ueff_theoretisch, color = "grey", linestyle = "--", label = "$U_{Eff}$" +f" = {ueff_theoretisch:.2f}V, theoretisch")
+#print(np.sqrt(np.sum(wechselspannung[:, 1]**2 )/len(wechselspannung[:, 1])))
+
+
+plt.xlabel("$t [ms]$")
+plt.ylabel("$U [V]$")
+plt.legend(loc = "lower right", fontsize = 10)
+plt.savefig("gleichrichter1000R.pdf")
+
+plt.show()
 #%%transistorkennlinien
 IB_IC, IB_ICerr = read_data("IB_IC_B107_NEU_NEU.txt", plot_raw= True, plot_errorbar=False)
 plt.scatter(IB_IC[0:5000,0],IB_IC[0:5000,1])
