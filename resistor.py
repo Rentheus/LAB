@@ -14,10 +14,11 @@ import matplotlib.pyplot as plt
 import uncertainties.unumpy as unp
 import uncertainties.umath as um
 
-adc_bins = 20/(2**12)
-adc_err_u = adc_bins/3**0.5
+adc_bins = (10.622260497*2)/(2**16)
+adc_err_u = adc_bins/3**0.5 * 1/2 # TODO RICHTIGEN FEHLER FINDEN
 
-R_REF_4700 = u.ufloat(4670, 10/3**0.5)
+R_REF_4700 = u.ufloat(4670, 0)
+R_REF_4700_err = 10/12**0.5
 
 def read_data(filename, name = "", plot_raw = False, plot_errorbar = False, saveraw = "raw.png", saveerrorbar ="err.pdf"):
     '''NICHT FÜR DATEN AUS DEM SPEICHEROSZILLOSKOP \n
@@ -98,10 +99,28 @@ def linfit_res(res_data, res_std):
 
     m0.migrad()
     m0.hesse()
-    return m0.values, m0.errors, m0.fval, len(res_data) - 2, m0.fval/(len(res_data) - 2)
+    
+    i = r[:,1]/(R_REF_4700+R_REF_4700_err)
+    
+    chi2_r = lambda m, b: chi2(lin ,y = res_data[:,0], x = unp.nominal_values(i[:]), yerr=res_std[:,0], xerr = unp.std_devs(i[:]), a = m , c=b)
+
+    m0plus = iminuit.Minuit(chi2_r, m = 1, b = 0)
+
+    m0plus.migrad()
+    m0plus.hesse()
+    
+    i = r[:,1]/(R_REF_4700-R_REF_4700_err)
+    
+    chi2_r = lambda m, b: chi2(lin ,y = res_data[:,0], x = unp.nominal_values(i[:]), yerr=res_std[:,0], xerr = unp.std_devs(i[:]), a = m , c=b)
+
+    m0minus = iminuit.Minuit(chi2_r, m = 1, b = 0)
+
+    m0minus.migrad()
+    m0minus.hesse()
+    return m0.values, m0.errors, m0.fval, len(res_data) - 2, m0.fval/(len(res_data) - 2), m0plus.values, m0minus.values
     
 def linfit_plot(res_data, res_std, name = "", filename = "test.pdf"):
-    val, err, chisq, dof, chindof = linfit_res(res_data, res_std)
+    val, err, chisq, dof, chindof, valplus, valminus = linfit_res(res_data, res_std)
     res = u.ufloat(val["m"],err["m"])
     b = u.ufloat(val["b"],err["b"])
     
@@ -116,8 +135,12 @@ def linfit_plot(res_data, res_std, name = "", filename = "test.pdf"):
     fity = lin(unp.nominal_values(i), val["m"],val["b"])
     fityplus = lin(unp.nominal_values(i), val["m"]+err["m"],val["b"]+err["b"])
     fityminus = lin(unp.nominal_values(i), val["m"]-err["m"],val["b"]-err["b"])
+    fitsysplus = lin(unp.nominal_values(i), valplus["m"],valplus["b"])
+    fitsysminus = lin(unp.nominal_values(i), valminus["m"],valminus["b"])
     
     ax[0].plot(unp.nominal_values(i), fity, label = "Fit", color = "r", zorder = 4)
+    ax[0].plot(unp.nominal_values(i), fitsysminus, label = "Fit - Lower $R_{Ref}$ ", color = "grey",linestyle = "--", zorder = 3)
+    ax[0].plot(unp.nominal_values(i), fitsysplus, label = "Fit - Higher $R_{Ref}$ ", color = "grey",linestyle = "--", zorder = 3)
     ax[0].errorbar(unp.nominal_values(i),res_data[:,0], res_std[:,0], unp.std_devs(i), fmt =".", elinewidth=0.4, label = "Messwerte", zorder =2)
     ax[0].fill_between(unp.nominal_values(i), fityminus, fityplus, alpha=.5, linewidth=0, label = "err_fit", color = "r", zorder = 3)
     #ax[0].plot(unp.nominal_values(i), fity, label = "Fit")
@@ -141,10 +164,11 @@ def linfit_plot(res_data, res_std, name = "", filename = "test.pdf"):
     ymax = max([abs(x) for x in ax[1].get_ylim()])
     ax[1].set_ylim(-ymax, ymax)
     ax[1].legend(fontsize = 13)
-    fig.text(0.5,0, f'R = ({res})$\Omega$ , b = ({b})V, chi2/dof = {chisq:.1f} / {dof} = {chindof:.3f} ', horizontalalignment = "center")
+    sigma_R_sys = val["m"] - valminus["m"]
+    fig.text(0.5,0, f'R = ({res})$\Omega$,'+' $\sigma_{R,sys}$ = '+f'{sigma_R_sys:0.2f}$\Omega$ , b = ({b})V, chi2/dof = {chisq:.1f} / {dof} = {chindof:.3f} ', horizontalalignment = "center")
     fig.subplots_adjust(hspace=0.0)
     
-    
+    #print(valplus, valminus)
     plt.savefig(filename)
     plt.show()
     return True
@@ -156,11 +180,14 @@ def linfit_plot(res_data, res_std, name = "", filename = "test.pdf"):
 r1d, r1e = read_data("r_470.txt", plot_raw= True, plot_errorbar=True)
 linfit_plot(r1d, r1e, "$470 \Omega$", "R470_fit.pdf")
 
+
 r2d, r2e = read_data("r_1000.txt", plot_raw= True, plot_errorbar=True)
 linfit_plot(r2d, r2e, "$1000 \Omega$", "R1000_fit.pdf")
 
 r3d, r3e = read_data("r_10000.txt", plot_raw= True, plot_errorbar=True)
 linfit_plot(r3d, r3e, "$10000 \Omega$", "R10000_fit.pdf")
+
+
 #%%
 
 def linfitr(res_data, res_std):
@@ -169,7 +196,7 @@ def linfitr(res_data, res_std):
     r = unp.uarray(res_data,res_std)
     i = r[:,1]
     
-    chi2_r = lambda m, b: chi2(lin ,y = res_data[:,0], x = unp.nominal_values(i[:]), yerr=res_std[:,0], xerr = unp.std_devs(i[:]), a = m , c=b)
+    chi2_r = lambda m, b: chi2(lin ,x = res_data[:,0], y = unp.nominal_values(i[:]), xerr=res_std[:,0], yerr = unp.std_devs(i[:]), a = m , c=b)
 
     m0 = iminuit.Minuit(chi2_r, m = 1, b = 0)
 
@@ -180,29 +207,34 @@ def linfitr(res_data, res_std):
 
 plt.errorbar(r1d[:5,0],r1d[:5,1],r1e[:5,1],r1e[:5,0], fmt = ".", label = "$R = 470\Omega$")
 plt.errorbar(r2d[:5,0],r2d[:5,1],r2e[:5,1],r2e[:5,0], fmt = ".", label = "$R = 1000\Omega$")
-plt.errorbar(r3d[:5,0],r3d[:5,1],r3e[:5,1],r3e[:5,0], fmt = ".", label = "$R = 10000\Omega$")
+plt.errorbar(r3d[:4,0],r3d[:4,1],r3e[:4,1],r3e[:4,0], fmt = ".", label = "$R = 10000\Omega$")
 
 
-x = np.arange(-0.005,max(r3d[:5,0])+ 0.005, 0.001 )
-print(x)
+
+x1 = np.arange(-0.001,max(r1d[:4,0])+ 0.002, 0.001 )
+
+x2 = np.arange(-0.002,max(r2d[:4,0])+ 0.005, 0.001 )
+
+x3 = np.arange(-0.002,max(r3d[:4,0])+ 0.005, 0.001 )
+#print(x)
 val, err, chisq, dof, chindof = linfitr(r1d, r1e)
-lin1 = lin(x, val["m"], val["b"])
+lin1 = lin(x1, val["m"], val["b"])
 val, err, chisq, dof, chindof = linfitr(r2d, r2e)
-lin2 = lin(x, val["m"], val["b"])
+lin2 = lin(x2, val["m"], val["b"])
 #print(lin2)
 val, err, chisq, dof, chindof = linfitr(r3d, r3e)
-lin3 = lin(x, val["m"], val["b"])
+lin3 = lin(x3, val["m"], val["b"])
 
-#plt.plot(x, lin1, label = "$Fit, 470\Omega$", color = "b")
-plt.plot(x,lin2, label = "$Fit, 1000\Omega$", color = "y")
-#plt.plot(x, lin3, label = "$Fit, 10000\Omega$", color = "g")
+plt.plot(x1, lin1, label = "$Fit, 470\Omega$", color = "b", linestyle = "--", alpha =.5)
+plt.plot(x2,lin2, label = "$Fit, 1000\Omega$", color = "orange", linestyle = "--", alpha =.5)
+plt.plot(x3, lin3, label = "$Fit, 10000\Omega$", color = "g", linestyle = "--", alpha =.5)
 
 plt.title("Spannungsmessung nahe Nullpunkt")
 plt.errorbar(0,0,adc_err_u, adc_err_u,  label = "Nullpunkt, Digitalisierungsfehler", marker = ".", color = "black")
 plt.ylabel("$U_R [V]$")
 plt.xlabel("$U_{Referenzwiderstand} [V]$")
 
-plt.legend()
+plt.legend(fontsize = 7)
 plt.savefig("R_sys_null.pdf")
 plt.show()
 
@@ -317,10 +349,7 @@ z_diode_plot(z_diode_1000, uz_d_err_1000, "1000$\Omega$", "Z_1000R.pdf")
 #%%kondensator
 
 def exp(x, a,b,c):
-    return a*np.exp(-x/b)+ c
-
-def exp_diel_abs(x, a,b , a2,b2, a3,b3, c):
-    return a*np.exp(-x/b)+ a2*np.exp(-x/b2)+ a3*np.exp(-x/b3)+ c
+    return a*np.exp(-x/b )+ c
 #def gaussian(x, mu, sig):
 #    return (
 #        1.0 / (np.sqrt(2.0 * np.pi) * sig) * np.exp(-np.power((x - mu) / sig, 2.0) / 2)
@@ -330,21 +359,166 @@ def exp_diel_abs(x, a,b , a2,b2, a3,b3, c):
 #def expandnoise(x, a,b,c, d,e):
 #    return exp(x,a,b,c) + gaussian(x, d,e)
 #Data = np.genfromtxt("c_entladekurve.txt")
-Data = np.genfromtxt("C_ladekurve.txt")
+Data = np.genfromtxt("C_entladekurve.txt")
 
 
 
 # zwischen 5000 und 455050
-t = Data[10000:450000,0] - Data[10000,0]
-U_C = Data[10000:450000,1]
-U_R = Data[10000:450000,2]
+t = Data[4966:450000,0] - Data[4966,0]
+U_C = Data[4966:450000,2]
+U_R = Data[4966:450000,1]
 
-print(t[5])
+U_test = Data[:,1]
+diff = U_test[1:] -U_test[:-1]
+plt.hist(diff)
+plt.show()
+print(min(abs(diff[diff != 0.0])))
+#%% normal exp fit
+lstsq = cost.LeastSquares(t, U_C, adc_err_u, exp)
+
+model = Minuit(lstsq, a=10, b=1000, c=0,  )
+
+lstsq2 = cost.LeastSquares(t, U_R, adc_err_u, exp)
+
+model2 = Minuit(lstsq2, a=-10, b=1000, c=0,  )
+
+model.migrad()
+model.hesse()
+print(model2.migrad())
+model2.hesse()
+#%%'
+fig, ax = fig, ax = plt.subplots(2, 1, figsize=(10,8), layout = "tight",gridspec_kw={'height_ratios': [5, 2]}, sharex = True)
+fitU = exp(t, model.values["a"], model.values["b"], model.values["c"], )
+fitUR = exp(t, model2.values["a"], model2.values["b"], model2.values["c"], )
+
+
+
+ax[0].title.set_text("Entladekurve Kondensator")
+
+ax[0].errorbar(t,U_C,adc_err_u, label = "Messwerte, $U_C$")
+ax[0].errorbar(t,U_R,adc_err_u, label = "Messwerte, $U_R$")
+
+ax[0].plot(t,fitU, label = "Fit: $U_C$ = "+f'{model.values["a"]:.2f}*' + "exp(-t/"+ f'{model.values["b"]:.2f}) + {model.values["c"]:.2f}'  )
+ax[0].plot(t,fitUR, label = "Fit: $U_R$")
+#ax[0].set_yscale("log")
+ax[0].set_ylabel("$U [V]$")
+ax[0].set_xlabel("$t [ms]$")
+#plt.scatter(Data[5000:455050,0],Data[5000:455050,2], )
+ax[0].legend(fontsize = 13)
+
+
+ax[1].errorbar(t,U_C - fitU, adc_err_u , label = "Residuen, $U_C$")
+ax[1].errorbar(t,U_R - fitUR, adc_err_u , label = "Residuen, $U_R$")
+
+ax[1].axhline(0, color = "black", linestyle = "--",)
+
+ 
+              
+ymax = max([abs(x) for x in ax[1].get_ylim()])
+ax[1].set_ylim(-ymax, ymax)
+ax[1].set_ylabel("$U - U_{Fit} [V]$")
+
+ax[1].set_xlabel("$t [ms]")
+
+
+
+ax[1].legend(fontsize = 13)
+#ax[1].scatter(t,U_R - fitU_R, label = "Residuen, U_R")
+
+#ax[1].plot(t, exp(t, abs( U_C[0] - fitU[0])-abs( U_C[-1] - fitU[-1]),  m1.values["b"], abs( U_C[-1] - fitU[-1])))
+#plt.legend()
+plt.savefig("kondensator_entlade_fit.png", dpi = 400)
+plt.show()
+#%%
+
+Data = np.genfromtxt("C_ladekurve.txt")
+
+
+
+# zwischen 4853 und 455050
+t = Data[4853:450000,0] - Data[10000,0]
+U_C = Data[4853:450000,2]
+U_R = Data[4853:450000,1]
+#%%
+lstsq = cost.LeastSquares(t, U_C, adc_err_u, exp)
+
+model = Minuit(lstsq, a=10, b=900, c=0,  )
+
+lstsq2 = cost.LeastSquares(t, U_R, adc_err_u, exp)
+
+model2 = Minuit(lstsq2, a=-10, b=900, c=0,  )
+
+model.migrad()
+model.hesse()
+print(model2.migrad())
+model2.hesse()
+
+fig, ax = fig, ax = plt.subplots(2, 1, figsize=(10,8), layout = "tight",gridspec_kw={'height_ratios': [5, 2]}, sharex = True)
+fitU = exp(t, model.values["a"], model.values["b"], model.values["c"], )
+fitUR = exp(t, model2.values["a"], model2.values["b"], model2.values["c"], )
+
+
+
+ax[0].title.set_text("Ladekurve Kondensator")
+
+ax[0].errorbar(t,U_C,adc_err_u, label = "Messwerte, $U_C$")
+ax[0].errorbar(t,U_R,adc_err_u, label = "Messwerte, $U_R$")
+
+ax[0].plot(t,fitU, label = "Fit: $U_C$ = "+f'{model.values["a"]:.2f}*' + "exp(-t/"+ f'{model.values["b"]:.2f}) + {model.values["c"]:.2f}'  )
+ax[0].plot(t,fitUR, label = "Fit: $U_R$")
+#ax[0].set_yscale("log")
+ax[0].set_ylabel("$U [V]$")
+ax[0].set_xlabel("$t [ms]$")
+#plt.scatter(Data[5000:455050,0],Data[5000:455050,2], )
+ax[0].legend(fontsize = 13)
+
+
+ax[1].errorbar(t,U_C - fitU, adc_err_u , label = "Residuen, $U_C$")
+ax[1].errorbar(t,U_R - fitUR, adc_err_u , label = "Residuen, $U_R$")
+
+ax[1].axhline(0, color = "black", linestyle = "--",)
+
+ 
+              
+ymax = max([abs(x) for x in ax[1].get_ylim()])
+ax[1].set_ylim(-ymax, ymax)
+ax[1].set_ylabel("$U_C - U_{Fit} [V]$")
+
+ax[1].set_xlabel("$t [ms]")
+
+
+
+ax[1].legend(fontsize = 13)
+plt.savefig("kondensator_lade_fit.png", dpi = 400)
+plt.show()
+
+#print(model.fval)
+#print(len(t)- 3)
+#print(model.fval/(len(t)-3))
+#%%ANDERER FIT
+
+def exp_diel_abs(x, a,b , a2,b2, c):
+    return a*np.exp(-x/b)+ a2*np.exp(-x/b2)+ c
+
+
+
+
+Data = np.genfromtxt("C_entladekurve.txt")
+
+
+
+# zwischen 5000 und 455050
+t = Data[4966:450000,0] - Data[4966,0]
+U_C = Data[4966:450000,2]
+U_R = Data[4966:450000,1]
+#%%
+
+#print(t[5])
 
 lstsq = cost.LeastSquares(t, U_C, adc_err_u, exp_diel_abs)
 #lstsq_R = cost.LeastSquares(t, U_R, adc_err_u, exp)
 
-m1 = Minuit(lstsq, a=10, b=900, c=0, a2=-1, b2 = 10000, a3=0.1, b3=100005, )
+m1 = Minuit(lstsq, a=10, b=900, c=0, a2=-1, b2 = 10000,  )
 #m2 = Minuit(lstsq_R, a=-10, b=1, c=10)
 
 print(m1.migrad())
@@ -355,28 +529,42 @@ print(m1.hesse())
 
 fig, ax = fig, ax = plt.subplots(2, 1, figsize=(10,7), layout = "tight",gridspec_kw={'height_ratios': [5, 2]})
 
-fitU = exp_diel_abs(t, m1.values["a"], m1.values["b"],m1.values["a2"], m1.values["b2"],m1.values["a3"], m1.values["b3"], m1.values["c"] )
+fitU = exp_diel_abs(t, m1.values["a"], m1.values["b"],m1.values["a2"], m1.values["b2"], m1.values["c"] )
 #fitU = exp(t, U_C[0], 1000, 0)
 #fitU_R = exp(t, m2.values["a"], m2.values["b"], m2.values["c"] )
 
 
-ax[0].title.set_text("Entladekurve_kondensator__")
+ax[0].title.set_text("Entladekurve Kondensator mit Leckstrom/Dielektrischer Absorption")
 
-ax[0].scatter(t,U_C, label = "Messwerte")
-ax[0].scatter(t,fitU, label = "Fit" )
+ax[0].errorbar(t,U_C,adc_err_u, label = "Messwerte für $U_C$", zorder = 2)
+ax[0].plot(t,fitU, label = "Fit für $U_C$", zorder = 1)
+
+ax[0].set_ylabel("$U_C [V]$")
+
+ax[0].set_xlabel("$t [ms]$")
+#ax[0].set_yscale("log")
 #plt.scatter(Data[5000:455050,0],Data[5000:455050,2], )
-ax[0].legend()
-ax[1].scatter(t,U_C - fitU, label = "Residuen, U_C")
+ax[0].legend(fontsize = 13)
+ax[1].errorbar(t,U_C - fitU,adc_err_u, label = "Residuen,$ U_C$", zorder = 1)
 #ax[1].scatter(t,U_R - fitU_R, label = "Residuen, U_R")
+ax[1].axhline(0, color = "black", linestyle = "--",zorder  =2)
+
+ 
+              
+ymax = max([abs(x) for x in ax[1].get_ylim()])
+ax[1].set_ylim(-ymax, ymax)
+ax[1].set_ylabel("$U_C - U_{Fit} [V]$")
+
+ax[1].set_xlabel("$t [ms]$")
 
 #ax[1].plot(t, exp(t, abs( U_C[0] - fitU[0])-abs( U_C[-1] - fitU[-1]),  m1.values["b"], abs( U_C[-1] - fitU[-1])))
-ax[1].legend()
+ax[1].legend(fontsize = 13)
 #plt.legend()
-#plt.savefig("c_fit.png")
+plt.savefig("c_entlade_leckstrom.png", dpi = 400)
 plt.show()
-print(m1.fval)
-print(len(t)- 3)
-print(m1.fval/(len(t)-3))
+#print(m1.fval)
+#print(len(t)- 3)
+#print(m1.fval/(len(t)-3))
  #%%gleichrichter
 wechselspannung = np.genfromtxt("Wechselspannung_kein_R_L.txt")
 plt.errorbar(wechselspannung[:7000,0], wechselspannung[:7000,1], adc_err_u, fmt = ".", label= "Messwerte, $V_{SS} = 4V, f = 50Hz$")
