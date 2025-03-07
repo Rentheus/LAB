@@ -13,6 +13,10 @@ from iminuit import cost, Minuit
 import matplotlib.pyplot as plt
 import uncertainties.unumpy as unp
 import uncertainties.umath as um
+import scipy
+from praktikum import analyse
+
+
 
 adc_bins = (10.622260497*2)/(2**16)
 adc_err_u = adc_bins/3**0.5 * 1/2 # TODO RICHTIGEN FEHLER FINDEN
@@ -702,7 +706,7 @@ plt.legend()
 #plt.plot(IB_IC[:,0], 200*470/10000*IB_IC[:,0], color = "r")
 #plt.plot(IB_IC[:,0], 400*470/10000*IB_IC[:,0], color = "r")
 
-plt.savefig("Stromseteuerkennlinie.pdf")
+plt.savefig("Stromsteuerkennlinie.pdf")
 plt.show()
 # plt.plot(r1d[:3,0],r1d[:3,1])
 # plt.plot(r2d[:3,0],r2d[:3,1])
@@ -767,12 +771,12 @@ def Transistor_plot(tdata, terr,  filename = "test.pdf"):
     #ax[1].fill_between(unp.nominal_values(i), fity-fityminus, fity-fityplus, alpha=0, linewidth = 0, label = "err_fit", color = "r")
     #ax[1].axhline(y=0., color='black', linestyle='--')
     ax[1].set_ylabel('$I_C - Fit [\mu A] $')
-    ax[1].set_xlabel('$I_B [\mu A]')
+    ax[1].set_xlabel('$I_B [\mu A]$')
     ymax = max([abs(x) for x in ax[1].get_ylim()])
     ax[1].set_ylim(-ymax, ymax)
     ax[1].legend(fontsize = 13)
     
-    fig.text(0.5,0,r"$\beta $" + f' = {val["m"]:.1f} , chi2/dof = {chisq:.1f} / {dof} = {chisqdof:.3f} ', horizontalalignment = "center")
+    fig.text(0.5,0,r"$\beta $" + f' = ({val["m"]:.2f}±{err["m"]:.2f}) , chi2/dof = {chisq:.1f} / {dof} = {chisqdof:.3f} ', horizontalalignment = "center")
     #fig.subplots_adjust(hspace=0.0)
     
     
@@ -786,7 +790,7 @@ def Transistor_plot(tdata, terr,  filename = "test.pdf"):
     plt.show()
     
     return True
-Transistor_plot(IB_IC, IB_ICerr)
+Transistor_plot(IB_IC, IB_ICerr, filename = "gleichstromverstärkungsfaktor_fit.pdf")
 
 #%%ausgangskennlinie
 u100mv,u100mverr = read_data("ausgang_ube100mv.txt", plot_raw = True)
@@ -859,8 +863,240 @@ plt.ylabel("$U_{CE}$ [V]")
 plt.savefig("ausgangskennlinien.pdf")
 plt.show()
 #%%verstärker
+amp1 = np.genfromtxt("Amplifier_ohne_c3.txt")
+amp2 = np.genfromtxt("Amplifier_mit_c3_4.txt")
+amp3 = np.genfromtxt("Amplifier_mit_c3_2.txt")
 
 
+
+#def sine(x, a, b, c, d):
+    #return a*np.sin(b*x+ c) + d
+
+#lstsqr = cost.LeastSquares(amp1[:500,0], amp1[:500,1], adc_err_u, sine)
+
+#m_sine = Minuit(lstsqr, a = 0.4, b =2*np.pi, c = np.pi, d = 0)
+#print(m_sine.migrad())
+
+#fity = sine(amp1[:,0], m_sine.values["a"], m_sine.values["b"], m_sine.values["c"], m_sine.values["d"])
+
+#prey = sine(amp1[:,0], 0.4, 2*np.pi, np.pi, 0)
+
+#plt.scatter(amp1[:500,0], amp1[:500,1])
+#plt.plot(amp1[:500,0], fity[:500])
+#plt.plot(amp1[:500,0], prey[:500])
+
+#plt.show()
+
+
+#lstsqr = cost.LeastSquares(amp1[:500,0], amp1[:500,2], adc_err_u, sine)
+
+#m_sine = Minuit(lstsqr, a = 0.4, b =2*np.pi, c = -np.pi, d = 0)
+#print(m_sine.migrad())
+
+#fity = sine(amp1[:,0], m_sine.values["a"], m_sine.values["b"], m_sine.values["c"], m_sine.values["d"])
+
+#prey = sine(amp1[:,0], 0.4, 2*np.pi, np.pi, 0)
+
+#plt.scatter(amp1[:500,0], amp1[:500,2])
+#plt.plot(amp1[:500,0], fity[:500])
+#plt.plot(amp1[:500,0], prey[:500])
+#plt.yscale("log")
+#plt.title("1")
+#plt.show()
+#a=np.fft.fft(amp1[:,1])
+#plt.scatter(amp1[:,0], a, )
+def fft_test(t, x):
+    nt = len(t)
+    dt = (t[-1] - t[0]) / (nt - 1)
+    amp = scipy.fft.rfft(x, norm='forward')
+    freq = scipy.fft.rfftfreq(nt, dt)
+    
+    return (freq, amp)
+
+
+
+
+fig, ax = fig, ax = plt.subplots(3, 1, figsize=(10,9), layout = "tight",gridspec_kw={'height_ratios': [5, 5, 5]})
+
+ax[0].errorbar(amp1[:1000,0],amp1[:1000,1],adc_err_u, fmt = ".", label = "Messwerte für $U_{Ein}$")
+ax[0].errorbar(amp1[:1000,0],amp1[:1000,2],adc_err_u, fmt = ".", label = "Messwerte für $U_{Aus}$")
+ax[0].set_ylabel("$U [V]$",)
+ax[0].set_xlabel("$t [ms]$")
+
+ax[0].legend()
+f_e, a_e = fft_test(amp1[:,0], amp1[:,1])
+f_a, a_a = fft_test(amp1[:,0], amp1[:,2])
+
+ax[1].scatter(f_e, a_e, marker= ".", label = "FFT für $U_E$", )
+ax[1].set_ylabel("$U [V]$",)
+ax[1].set_xlabel("$f [kHz]$")
+ax[1].legend()
+
+
+ax[2].scatter(f_a, a_a, marker= ".", label = "FFT für $U_A$", color = "orange", )
+ax[2].set_ylabel("$U [V]$",)
+ax[2].set_xlabel("$f [kHz]$")
+ax[2].legend()
+
+print(max(abs(a_a)))
+print(max(abs(a_e)))
+
+amp_fac = max(abs(a_a))/ max(abs(a_e))
+
+ax[0].title.set_text("Verstärker ohne C3, Verstärkungsfaktor = " + f"{amp_fac:.1f}")
+plt.savefig("amp_ohne_c3.pdf")
+plt.show()
+
+
+
+
+
+
+fig, ax = fig, ax = plt.subplots(3, 1, figsize=(10,9), layout = "tight",gridspec_kw={'height_ratios': [5, 5, 5]})
+
+ax[0].errorbar(amp2[:1000,0],amp2[:1000,1],adc_err_u, fmt = ".", label = "Messwerte für $U_{Ein}$")
+ax[0].errorbar(amp2[:1000,0],amp2[:1000,2],adc_err_u, fmt = ".", label = "Messwerte für $U_{Aus}$")
+ax[0].set_ylabel("$U [V]$",)
+ax[0].set_xlabel("$t [ms]$")
+
+ax[0].legend()
+f_e, a_e = fft_test(amp2[:,0], amp2[:,1])
+f_a, a_a = fft_test(amp2[:,0], amp2[:,2])
+
+ax[1].scatter(f_e, a_e, marker= ".", label = "FFT für $U_E$", )
+ax[1].set_ylabel("$U [V]$",)
+ax[1].set_xlabel("$f [kHz]$")
+ax[1].legend()
+
+
+ax[2].scatter(f_a, a_a, marker= ".", label = "FFT für $U_A$", color = "orange", )
+ax[2].set_ylabel("$U [V]$",)
+ax[2].set_xlabel("$f [kHz]$")
+ax[2].legend()
+
+print(max(abs(a_a)))
+print(max(abs(a_e)))
+
+
+amp_fac = max(abs(a_a))/ max(abs(a_e))
+
+ax[0].title.set_text("Verstärker mit C3, Verstärkungsfaktor = " + f"{amp_fac:.1f}")
+plt.savefig("amp_mit_c3.pdf")
+
+plt.show()
+
+
+
+
+
+
+fig, ax = fig, ax = plt.subplots(3, 1, figsize=(10,9), layout = "tight",gridspec_kw={'height_ratios': [5, 5, 5]})
+
+ax[0].errorbar(amp3[:1000,0],amp3[:1000,1],adc_err_u, fmt = ".", label = "Messwerte für $U_{Ein}$")
+ax[0].errorbar(amp3[:1000,0],amp3[:1000,2],adc_err_u, fmt = ".", label = "Messwerte für $U_{Aus}$")
+ax[0].set_ylabel("$U [V]$",)
+ax[0].set_xlabel("$t [ms]$")
+
+ax[0].legend()
+f_e, a_e = fft_test(amp3[:,0], amp3[:,1])
+f_a, a_a = fft_test(amp3[:,0], amp3[:,2])
+
+ax[1].scatter(f_e, a_e, marker= ".", label = "FFT für $U_E$", )
+ax[1].set_ylabel("$U [V]$",)
+ax[1].set_xlabel("$f [kHz]$")
+ax[1].legend()
+
+
+ax[2].scatter(f_a, a_a, marker= ".", label = "FFT für $U_A$", color = "orange", )
+ax[2].set_ylabel("$U [V]$",)
+ax[2].set_xlabel("$f [kHz]$")
+ax[2].legend()
+
+
+print(max(abs(a_a)))
+print(max(abs(a_e)))
+amp_fac = max(abs(a_a))/ max(abs(a_e))
+
+ax[0].title.set_text("Verstärker ohne C3, Verstärkungsfaktor = " + f"{amp_fac:.1f}, Schlechte Messung")
+plt.savefig("amp_mit_c3_schlechte_messung.pdf")
+
+plt.show()
+
+#f1,a1 = fft_test(amp1[:,0],amp1[:,1])
+#plt.scatter(f1[4000:],a1[4000:],marker =".", label = "FFT")
+#plt.title("FFT Eingangssignal Rauschbestimmung mit C3")
+#plt.ylabel("$U[V]$",)
+#plt.xlabel("$f[kHz]$")
+#plt.legend()
+#plt.savefig("fft_rausch_eingang_mit_c3.pdf")
+#plt.yscale("log")
+#plt.show()
+
+#print("Rauschen Uein")
+#print(np.std(a1[4000:], ddof = 1))
+
+#f1,a1 = fft_test(amp1[:,0],amp1[:,2])
+#plt.scatter(f1[4000:],a1[4000:],marker =".", label = "FFT")
+#plt.title("FFT Ausgangsssignal Rauschbestimmung mit C3")
+
+#plt.ylabel("$U[V]$",)
+#plt.xlabel("$f[kHz]$")
+#plt.legend()
+#plt.savefig("fft_rausch_ausgang_mit_c3.pdf")
+#plt.yscale("log")
+#plt.show()
+
+#print("Rauschen Uaus")
+#print(np.std(a1[3000:], ddof = 1))
+
+#m = []
+#temp = np.array(range(len(amp1[:,0])))
+#for k in range(3):
+#for i in range(12):
+#    filt = temp%12==i
+#    f, a = analyse.fourier_fft(amp1[:,0][filt],amp1[:,1][filt])
+#    m.append(max(a))
+        
+#print(m)
+#print(np.std(m, ddof = 1))
+#print(np.std(m, ddof = 1)/12**0.5)
+
+#f = []
+#a = []
+#m = []
+#plt.show()
+
+#for i in range(10000):
+#    rand_offset = np.random.uniform(low = 0, high = adc_bins, size = amp1[:,0].shape) - adc_bins/2
+    
+#    f_t, a_t = fft_test(amp1[:,0], rand_offset )
+#    f.append(f_t)
+#    a.append(a_t)
+#    #plt.scatter(f_t,a_t, marker = ".")
+    #plt.show()
+    #m.append(max(a_t))
+    
+
+#plt.title("Bestimmung von ADC-Unsicherheit in FFT mit Monte-Carlo-Simulation")
+#plt.scatter(f[0], a[0], marker = ".", label = "FFT von simulierter Gleichverteilung")
+#plt.legend()
+
+#plt.ylabel("$U[V]$",)
+#plt.xlabel("$f[Hz]$")
+#plt.savefig("fft_adc_err_monte_carlo_10000.pdf")
+
+#plt.show()
+#err_fft = np.std(a, ddof = 1)
+#print("Digitalisierungsfehler")
+#print(err_fft)
+#plt.scatter(f1,a1,marker =".")
+#plt.title("1")
+#plt.axhline(err_fft)
+
+#plt.show()
+
+
+#plt.show()
 #%%schmitttrigger
 schmitt_sin = np.genfromtxt("schmitt_trigger.txt")
 plt.errorbar(schmitt_sin[:1000,0], schmitt_sin[:1000, 1], adc_err_u, label = "$U_E$", fmt = ".")
@@ -870,13 +1106,14 @@ plt.fill_between(schmitt_sin[:1000,0], max(schmitt_sin[:1000,2]),min(schmitt_sin
 
 
 plt.axhline(2.95, label = "$U_{Ein, berechnet} = 2.95V$", color = "black", ls ="--", zorder=4)
-plt.axhline(1.65, label = "$U_{Aus, berechnet} = 1.65V$", color = "black", ls=":", zorder=4)
+plt.axhline(1.65, label = "$U_{Aus, berechnet} = 1.65V$", color = "black", ls="-.", zorder=4)
 
 plt.ylabel("$U [V]$")
 plt.xlabel("$t [ms]$")
 plt.title("Schmitt-Trigger bei sinusförmiger Eingangsspannung")
 
 plt.legend(loc = "upper right")
+plt.savefig("schmitttrigger.pdf")
 plt.show()
 schmitt_hysterese = np.genfromtxt("schmitt_trigger_hysterese.txt")
 #print(max(schmitt_hysterese[:,2]))
@@ -891,20 +1128,21 @@ plt.fill_between(trigger_active, max(schmitt_hysterese[:,2]), alpha = 0.5, color
 
 
 plt.axhline(2.95, label = "$U_{Ein, berechnet} = 2.95V$", color = "black", ls ="--", zorder=4)
-plt.axhline(1.65, label = "$U_{Aus, berechnet} = 1.65V$", color = "black", ls=":", zorder=4)
+plt.axhline(1.65, label = "$U_{Aus, berechnet} = 1.65V$", color = "black", ls="-.", zorder=4)
 
 #hystereseberechnung
 hysterese = schmitt_hysterese[:,1][schmitt_hysterese[:,2]>6][0] -schmitt_hysterese[:,1][schmitt_hysterese[:,2]>6][-1]
-plt.plot([2600,2600], [min(schmitt_hysterese[:,2]), min(schmitt_hysterese[:,2])+hysterese], marker = "_", lw = 4, ms = 20, mew = 4,  label = "Gemessene Hysterese $U_H= $" + f"{hysterese:.2f}V", color = "grey")
-plt.plot([6600,6600], [min(schmitt_hysterese[:,2]), min(schmitt_hysterese[:,2])+hysterese], marker = "_", lw = 4, ms = 20, mew = 4, color = "grey")
-
+#plt.plot([4400,4400], [min(schmitt_hysterese[:,2]), min(schmitt_hysterese[:,2])+hysterese], lw = 3,  label = "Gemessene Hysterese $U_H= $" + f"{hysterese:.2f}V", color = "grey", alpha =.5)
+plt.plot([2000,7000], [min(schmitt_hysterese[:,2]),min(schmitt_hysterese[:,2])], color = "grey", ls = ":", lw = 3,label = "Gemessene Hysterese $U_H= $" + f"{hysterese:.2f}V")
+plt.plot([2000,7000], [min(schmitt_hysterese[:,2])+hysterese, min(schmitt_hysterese[:,2])+hysterese], color = "grey", ls = ":", lw=3)
 
 
 plt.ylabel("$U [V]$")
 plt.xlabel("$t [ms]$")
 plt.title("Hysteresekurve Schmitt-Trigger")
 
-plt.legend()
+plt.legend(loc = "upper right")
+plt.savefig("hysterese.png",dpi = 400)
 plt.show()
 
 
