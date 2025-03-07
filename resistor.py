@@ -20,6 +20,8 @@ adc_err_u = adc_bins/3**0.5 * 1/2 # TODO RICHTIGEN FEHLER FINDEN
 R_REF_4700 = u.ufloat(4670, 0)
 R_REF_4700_err = 10/12**0.5
 
+R_REF_10000 = 10040
+
 def read_data(filename, name = "", plot_raw = False, plot_errorbar = False, saveraw = "raw.png", saveerrorbar ="err.pdf"):
     '''NICHT FÜR DATEN AUS DEM SPEICHEROSZILLOSKOP \n
     ließt daten ein, mittelt sie und gibt die binmittelwerte und die fehler auf die mittelwerte aus \n
@@ -498,7 +500,7 @@ plt.show()
 #%%ANDERER FIT
 
 def exp_diel_abs(x, a,b , a2,b2, c):
-    return a*np.exp(-x/b)+ a2*np.exp(-x/b2)+ c
+    return a*np.exp(-x/b)+ a2*np.exp(-x/b2)+  c
 
 
 
@@ -627,17 +629,80 @@ plt.savefig("gleichrichter1000R.pdf")
 
 plt.show()
 #%%transistorkennlinien
-IB_IC, IB_ICerr = read_data("IB_IC_B107_NEU_NEU.txt", plot_raw= True, plot_errorbar=False)
-plt.scatter(IB_IC[0:5000,0],IB_IC[0:5000,1])
+
+#%%eingangskennline
+eingang, eingangerr = read_data("eingang_b107_vce0.txt", plot_raw= True, plot_errorbar=False)
+
+eingang[:,1] /= u.nominal_value(R_REF_4700)
+eingangerr[:,1] /= u.nominal_value(R_REF_4700)
+
+eingang[:,1] *=1000
+eingangerr[:,1] *=1000
+
+
+plt.errorbar(eingang[:,0], eingang[:,1], eingangerr[:,1], eingangerr[:,0], label = "Messwerte", fmt = "." )
+plt.ylabel("$I_B [mA]$")
+plt.xlabel("$U_{BE} [V]$")
+plt.legend()
+plt.title("Eingangskennlinie für B107 ohne angelegte $U_{CE}$, $R_{REF} = 4700\Omega$")
+plt.savefig("eingangskennlinie.pdf")
+plt.show()
+#%%spannungssteuerkennlinie
+UBE_IC, UBE_ICerr = read_data("UBE_IC_b107_NEU.txt", plot_raw= True, plot_errorbar=False)
+UBE_IC[:,0] *=-1
+#UBE_ICerr[:,0] *=-1
+UBE_IC[:,1] *=-1
+
+UBE_IC[:,1] /= R_REF_10000
+UBE_ICerr[:,1] /= R_REF_10000
+UBE_IC[:,1] *= 1000
+UBE_ICerr[:,1] *= 1000
+#UBE_ICerr[:,1] *=-1
+
+
+#plt.scatter(UBE_IC[:,0], UBE_IC[:,1])
+plt.errorbar(UBE_IC[:,0], UBE_IC[:,1], UBE_ICerr[:,1], UBE_ICerr[:,0], label = "Messwerte", fmt = ".")
+plt.ylabel("$I_C [mA]$")
+plt.xlabel("$U_{BE} [V]$")
+plt.legend()
+plt.title("Spannungsteuerkennlinie für B107, $R_{REF} = 10000\Omega$")
+
+plt.savefig("spannungsteuerkennlinie.pdf")
+
+plt.show()
+
+#%% stromsteuerkennlinie
+IB_IC, IB_ICerr = read_data("IB_IC_B107_NEU_POTI.txt", plot_raw= True, plot_errorbar=False)
+
+IB_IC[:,1] *=-1
+
+IB_IC[:,0] /=445000
+IB_ICerr[:,0] /=445000
+IB_IC[:,1] /=10000
+IB_ICerr[:,1] /=10000
+
+IB_IC *= 1000  * 1000
+IB_ICerr *= 1000  * 1000
+
+plt.errorbar(IB_IC[:,0],IB_IC[:,1], IB_ICerr[:,1],IB_ICerr[:,0], label = "Messwerte", fmt=".")
+
+plt.fill_between(IB_IC[:,0], 450, 510, where= IB_IC[:,1]>450 ,label = "Sättigungsbereich",alpha=.1, hatch="/", capstyle = "round")
+
+plt.ylabel("$I_C [\mu A]$")
+plt.xlabel("$I_B [\mu A]$")
+
+plt.legend()
 #plt.show()
 
-for i in range(8):
-    print((IB_IC[i*150+4000,0])/10000)
-    print(((IB_IC[i*150+4000,1])/470)/((IB_IC[i*150+4000,0])/10000))
-    plt.axhline(IB_IC[i*150+4000,1])
+#for i in range(8):
+#    print((IB_IC[i*150+4000,0])/10000)
+#    print(((IB_IC[i*150+4000,1])/470)/((IB_IC[i*150+4000,0])/10000))
+#    plt.axhline(IB_IC[i*150+4000,1])
     
-plt.plot(IB_IC[0:5000,0], 200*470/10000*IB_IC[0:5000,0], color = "r")
-plt.plot(IB_IC[0:5000,0], 400*470/10000*IB_IC[0:5000,0], color = "r")
+#plt.plot(IB_IC[:,0], 200*470/10000*IB_IC[:,0], color = "r")
+#plt.plot(IB_IC[:,0], 400*470/10000*IB_IC[:,0], color = "r")
+
+plt.savefig("Stromseteuerkennlinie.pdf")
 plt.show()
 # plt.plot(r1d[:3,0],r1d[:3,1])
 # plt.plot(r2d[:3,0],r2d[:3,1])
@@ -648,30 +713,198 @@ plt.show()
 # plt.scatter(IB[:100,0],IB[:100,1])
 # plt.show()
 
-#read_data()
+#%%linfit
+def linfit_t(y, x, yerr, xerr):
+    'linear fitting function for Q = Ue / Ua with Zdiode'
+    
 
-# plt.scatter(u100mv[:,0],u100mv[:,1])
+    
+    chi2_r = lambda m, b: chi2(lin ,y = y, x = x, yerr=yerr, xerr = xerr, a = m , c=b)
+
+    m0 = iminuit.Minuit(chi2_r, m = 1, b = 0)
+
+    m0.migrad()
+    #print(m0.hesse())
+    return m0.values, m0.errors, m0.fval, len(x) - 2, m0.fval/(len(x) - 2)
+
+
+
+def Transistor_plot(tdata, terr,  filename = "test.pdf"):
+    fig, ax = fig, ax = plt.subplots(2, 1, figsize=(10,7), layout = "tight",gridspec_kw={'height_ratios': [5,  2]})
+    
+    IB = tdata[400:600, 0]
+    IBerr = terr[400:600, 0]
+    IC = tdata[400:600, 1]
+    ICerr = terr[400:600, 1]
+
+    ax[0].errorbar(IB, IC, ICerr,IBerr, fmt =".", label = "Messdaten, Ausschnitt im linearen Bereich")
+    
+    
+    ax[0].set_xlabel("$I_B [\mu A]$")
+    ax[0].set_ylabel("$I_C [\mu A]$")
+    ax[0].title.set_text("Gleichstromverstärkungsfaktor B107")
+
+    
+    
+    
+    
+    val, err, chisq, dof, chisqdof = linfit_t(IC, IB, ICerr, IBerr)
+    print(chisq, dof, chisqdof)
+    
+    fity =val["m"]*IB + val["b"]
+    #print(val["m"])
+    ax[0].plot(IB, fity, label = "Linearer Fit")
+
+    ax[0].legend(fontsize = 13)
+    
+    
+    
+    sigmaRes = np.sqrt(val["m"]*IBerr**2 + ICerr**2)
+    
+    ax[1].axhline(y=0., color='black', linestyle='--', zorder = 4)
+    
+    ax[1].errorbar(IB, fity-IC, sigmaRes, fmt = ".",   label = "Residuen" )
+    #ax[1].fill_between(unp.nominal_values(i), fity-fityminus, fity-fityplus, alpha=0, linewidth = 0, label = "err_fit", color = "r")
+    #ax[1].axhline(y=0., color='black', linestyle='--')
+    ax[1].set_ylabel('$I_C - Fit [\mu A] $')
+    ax[1].set_xlabel('$I_B [\mu A]')
+    ymax = max([abs(x) for x in ax[1].get_ylim()])
+    ax[1].set_ylim(-ymax, ymax)
+    ax[1].legend(fontsize = 13)
+    
+    fig.text(0.5,0,r"$\beta $" + f' = {val["m"]:.1f} , chi2/dof = {chisq:.1f} / {dof} = {chisqdof:.3f} ', horizontalalignment = "center")
+    #fig.subplots_adjust(hspace=0.0)
+    
+    
+    #print(f'G = ({val["m"]})')
+    #print(S)
+    #print(chisq)
+    #print(dof)
+    
+    print((fity[0]-IB[0])**2/sigmaRes[0])
+    plt.savefig(filename)
+    plt.show()
+    
+    return True
+Transistor_plot(IB_IC, IB_ICerr)
+
+#%%ausgangskennlinie
+u100mv,u100mverr = read_data("ausgang_ube100mv.txt", plot_raw = True)
+u600mv,u600mverr = read_data("ausgang_ube600mv.txt", plot_raw = True)
+u700mv,u700mverr = read_data("ausgang_ube700mv.txt", plot_raw = True)
+u800mv,u800mverr = read_data("ausgang_ube800mv.txt", plot_raw = True)
+u1v,u1verr = read_data("ausgang_ube1.txt", plot_raw = True)
+u5v,u5verr = read_data("ausgang_ube5.txt", plot_raw = True)
+u10v,u10verr = read_data("ausgang_ube10.txt", plot_raw = True)
+
+
+#TODO richtige werte einsetzen fü rref
+R_C = 100
+
+u100mv[:,1] /= R_C
+u100mverr[:,1] /= R_C
+u600mv[:,1] /= R_C
+u600mverr[:,1] /= R_C
+u700mv[:,1] /= R_C
+u700mverr[:,1] /= R_C
+u800mv[:,1] /= R_C
+u800mverr[:,1] /= R_C
+u1v[:,1] /= R_C
+u1verr[:,1] /= R_C
+u5v[:,1] /= R_C
+u5verr[:,1] /= R_C
+u10v[:,1] /= R_C
+u10verr[:,1] /= R_C
+
+
+u100mv[:,1] *= 1000
+u100mverr[:,1] *= 1000
+u600mv[:,1] *= 1000
+u600mverr[:,1] *= 1000
+u700mv[:,1] *= 1000
+u700mverr[:,1] *= 1000
+u800mv[:,1] *= 1000
+u800mverr[:,1] *= 1000
+u1v[:,1] *= 1000
+u1verr[:,1] *= 1000
+u5v[:,1] *= 1000
+u5verr[:,1] *= 1000
+u10v[:,1] *= 1000
+u10verr[:,1] *= 1000
+
+
+ube_t = np.array([0.1,0.6,0.7,0.8,1,5,10])
+ib_t = ube_t/10040
+ib_t *=1000*1000
+
+
+plt.rcParams["figure.figsize"] = (10,7)
+plt.errorbar(u100mv[:,0],u100mv[:,1],u100mverr[:,1],u100mverr[:,0], label = "$Messwerte, I_{B} = "+f"{ib_t[0]:.2f}$"+"$\mu A$", fmt=".")
+plt.errorbar(u600mv[:,0],u600mv[:,1],u600mverr[:,1],u600mverr[:,0], label = "$Messwerte, I_{B} = "+f"{ib_t[1]:.2f}$"+"$\mu A$", fmt=".")
+plt.errorbar(u700mv[:,0],u700mv[:,1],u700mverr[:,1],u700mverr[:,0], label = "$Messwerte, I_{B} = "+f"{ib_t[2]:.2f}$"+"$\mu A$", fmt=".")
+plt.errorbar(u800mv[:,0],u800mv[:,1],u800mverr[:,1],u800mverr[:,0],label = "$Messwerte, I_{B} = "+f"{ib_t[3]:.2f}$"+"$\mu A$", fmt=".")
+plt.errorbar(u1v[:,0],u1v[:,1],u1verr[:,1],u1verr[:,0],label = "$Messwerte, I_{B} = "+f"{ib_t[4]:.2f}$"+"$\mu A$", fmt=".")
+plt.errorbar(u5v[:,0],u5v[:,1],u5verr[:,1],u5verr[:,0],label = "$Messwerte, I_{B} = "+f"{ib_t[5]:.2f}$"+"$\mu A$", fmt=".")
+plt.errorbar(u10v[:,0],u10v[:,1],u10verr[:,1],u10verr[:,0],label = "$Messwerte, I_{B} = "+f"{ib_t[6]:.2f}$"+"$\mu A$", fmt=".")
+
+plt.legend()
+plt.title("Ausgangskennlinien B107")
+plt.ylabel("$I_C$ [mA]")
+plt.ylabel("$U_{CE}$ [V]")
+
 # plt.scatter(u600mv[:,0],u600mv[:,1])
 # plt.scatter(u700mv[:,0],u700mv[:,1])
 # plt.scatter(u800mv[:,0],u800mv[:,1])
 # plt.plot()
+plt.savefig("ausgangskennlinien.pdf")
+plt.show()
+#%%verstärker
+
+
 #%%schmitttrigger
+schmitt_sin = np.genfromtxt("schmitt_trigger.txt")
+plt.errorbar(schmitt_sin[:1000,0], schmitt_sin[:1000, 1], adc_err_u, label = "$U_E$", fmt = ".")
+plt.errorbar(schmitt_sin[:1000,0], schmitt_sin[:1000, 2], adc_err_u, label = "$U_A$", fmt = ".")
+#trig_active = schmitt_sin[:500,0][schmitt_sin[:500, 2]>6]
+plt.fill_between(schmitt_sin[:1000,0], max(schmitt_sin[:1000,2]),min(schmitt_sin[:1000,2]), where=schmitt_sin[:1000, 2]>6, alpha = 0.5, color = "orange", label = "Schmitt-Trigger aktiv")
+
+
+plt.axhline(2.95, label = "$U_{Ein, berechnet} = 2.95V$", color = "black", ls ="--", zorder=4)
+plt.axhline(1.65, label = "$U_{Aus, berechnet} = 1.65V$", color = "black", ls=":", zorder=4)
+
+plt.ylabel("$U [V]$")
+plt.xlabel("$t [ms]$")
+plt.title("Schmitt-Trigger bei sinusförmiger Eingangsspannung")
+
+plt.legend(loc = "upper right")
+plt.show()
 schmitt_hysterese = np.genfromtxt("schmitt_trigger_hysterese.txt")
-print(max(schmitt_hysterese[:,2]))
+#print(max(schmitt_hysterese[:,2]))
 trigger_active = schmitt_hysterese[:,0][schmitt_hysterese[:,2] > 6]
 
 
-plt.scatter(schmitt_hysterese[:,0], schmitt_hysterese[:,1], marker = ".")
-plt.scatter(schmitt_hysterese[:,0], schmitt_hysterese[:,2], marker = ".")
-plt.fill_between(trigger_active, max(schmitt_hysterese[:,2]), alpha = 0.5, color = "orange")
+plt.errorbar(schmitt_hysterese[:,0], schmitt_hysterese[:,1], adc_err_u, label = "$U_E$", fmt = ".")
+plt.errorbar(schmitt_hysterese[:,0], schmitt_hysterese[:,2], adc_err_u, label = "$U_A$", fmt = ".")
+plt.fill_between(trigger_active, max(schmitt_hysterese[:,2]), alpha = 0.5, color = "orange", label = "Schmitt-Trigger aktiv")
 
 #plt.plot(schmitt_hysterese[:,0], schmitt_hysterese[:,2], color = "r")
 
-plt.axhline(2.95)
-plt.axhline(1.65)
+
+plt.axhline(2.95, label = "$U_{Ein, berechnet} = 2.95V$", color = "black", ls ="--", zorder=4)
+plt.axhline(1.65, label = "$U_{Aus, berechnet} = 1.65V$", color = "black", ls=":", zorder=4)
+
+#hystereseberechnung
+hysterese = schmitt_hysterese[:,1][schmitt_hysterese[:,2]>6][0] -schmitt_hysterese[:,1][schmitt_hysterese[:,2]>6][-1]
+plt.plot([2600,2600], [min(schmitt_hysterese[:,2]), min(schmitt_hysterese[:,2])+hysterese], marker = "_", lw = 4, ms = 20, mew = 4,  label = "Gemessene Hysterese $U_H= $" + f"{hysterese:.2f}V", color = "grey")
+plt.plot([6600,6600], [min(schmitt_hysterese[:,2]), min(schmitt_hysterese[:,2])+hysterese], marker = "_", lw = 4, ms = 20, mew = 4, color = "grey")
 
 
 
+plt.ylabel("$U [V]$")
+plt.xlabel("$t [ms]$")
+plt.title("Hysteresekurve Schmitt-Trigger")
+
+plt.legend()
 plt.show()
 
 
